@@ -11,7 +11,7 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.1.0"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -28,12 +28,15 @@ enum PluginAction {
 	Action_Enable,
 	Action_Disable,
 	Action_Find,
-	Action_Info
+	Action_Info,
+	Action_RefreshStale
 };
 
 char g_ActionCommands[][] = {
-	"", "load", "reload", "unload", "enable", "disable", "find", "info"
+	"", "load", "reload", "unload", "enable", "disable", "find", "info", "refresh_stale"
 };
+
+int g_LastRefresh;
 
 public void OnPluginStart() {
 	// EnableDisable.smx conflicts with this plugin's `plugins` server command
@@ -45,10 +48,12 @@ public void OnPluginStart() {
 	RegAdminCmd("sm_plugins", AdminCmd_PluginManage, ADMFLAG_ROOT);
 	
 	RegServerCmd("plugins", ServerCmd_PluginManage);
+	
+	g_LastRefresh = GetTime();
 }
 
 public Action AdminCmd_PluginManage(int client, int argc) {
-	PluginAction action;
+	PluginAction action = Action_Invalid;
 	if (argc > 0) {
 		char actionName[16];
 		GetCmdArg(1, actionName, sizeof(actionName));
@@ -58,10 +63,53 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 				action = view_as<PluginAction>(i);
 			}
 		}
+		
+		if (action == Action_Invalid) {
+			ReplyToCommand(client, "Unknown plugin management command '%s'", actionName);
+		}
 	} else {
 		char command[64];
 		GetCmdArg(0, command, sizeof(command));
 		ReplyToCommand(client, "Usage: %s [action] [plugin, ...]", command);
+	}
+	
+	switch (action) {
+		case Action_RefreshStale: {
+			// TODO should we store all active plugins' times in a StringMap?
+			// time offsets mean plugins with times in the future will be "stale" for longer
+			bool selfStale;
+			char pluginSelfName[PLATFORM_MAX_PATH];
+			GetPluginFilename(INVALID_HANDLE, pluginSelfName, sizeof(pluginSelfName));
+			
+			Handle iterator = GetPluginIterator();
+			while (MorePlugins(iterator)) {
+				Handle plugin = ReadPlugin(iterator);
+				
+				char pluginName[PLATFORM_MAX_PATH], pluginPath[PLATFORM_MAX_PATH];
+				
+				GetPluginFilename(plugin, pluginName, sizeof(pluginName));
+				BuildPath(Path_SM, pluginPath, sizeof(pluginPath), "plugins/%s", pluginName);
+				
+				int mtime = GetFileTime(pluginPath, FileTime_LastChange);
+				
+				if (mtime > g_LastRefresh) {
+					if (StrEqual(pluginName, pluginSelfName)) {
+						selfStale = true;
+					} else {
+						ReloadPlugin(plugin);
+					}
+				}
+			}
+			delete iterator;
+			
+			if (selfStale) {
+				RequestFrame(ReloadSelfNextFrame);
+			}
+			
+			g_LastRefresh = GetTime();
+			
+			return Plugin_Handled;
+		}
 	}
 	
 	// TODO get all plugin filenames and treat them as expressions to be expanded?
@@ -116,4 +164,8 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 
 public Action ServerCmd_PluginManage(int argc) {
 	return AdminCmd_PluginManage(0, argc);
+}
+
+public void ReloadSelfNextFrame(any ignored) {
+	ReloadPlugin();
 }
