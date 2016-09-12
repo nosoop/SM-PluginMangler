@@ -11,7 +11,7 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.1.0"
+#define PLUGIN_VERSION "1.1.1"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -38,6 +38,8 @@ char g_ActionCommands[][] = {
 
 int g_LastRefresh;
 
+StringMap g_FuturePluginTimes;
+
 public void OnPluginStart() {
 	// EnableDisable.smx conflicts with this plugin's `plugins` server command
 	if (DisablePluginFile("EnableDisable")) {
@@ -48,8 +50,41 @@ public void OnPluginStart() {
 	RegAdminCmd("sm_plugins", AdminCmd_PluginManage, ADMFLAG_ROOT);
 	
 	RegServerCmd("plugins", ServerCmd_PluginManage);
-	
+}
+
+public void OnMapStart() {
 	g_LastRefresh = GetTime();
+	
+	/**
+	 * Store times of plugins with mtimes newer than system clock.
+	 * 
+	 * Keeping track of this means that plugins with mtime newer than clock only get reloaded
+	 * when their mtime changes.
+	 */
+	
+	// If necessary, prune the trie by throwing it out and replanting a new one.
+	if (g_FuturePluginTimes) {
+		delete g_FuturePluginTimes;
+	}
+	
+	g_FuturePluginTimes = new StringMap();
+	
+	Handle iterator = GetPluginIterator();
+	while (MorePlugins(iterator)) {
+		Handle plugin = ReadPlugin(iterator);
+		
+		char pluginName[PLATFORM_MAX_PATH], pluginPath[PLATFORM_MAX_PATH];
+		
+		GetPluginFilename(plugin, pluginName, sizeof(pluginName));
+		BuildPath(Path_SM, pluginPath, sizeof(pluginPath), "plugins/%s", pluginName);
+		
+		int mtime = GetFileTime(pluginPath, FileTime_LastChange);
+		
+		if (mtime > g_LastRefresh) {
+			g_FuturePluginTimes.SetValue(pluginName, mtime, false);
+		}
+	}
+	delete iterator;
 }
 
 public Action AdminCmd_PluginManage(int client, int argc) {
@@ -73,10 +108,11 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 		ReplyToCommand(client, "Usage: %s [action] [plugin, ...]", command);
 	}
 	
+	bool bSinglePluginAction;
+	
+	// Perform actions that do not need plugin names passed in.
 	switch (action) {
 		case Action_RefreshStale: {
-			// TODO should we store all active plugins' times in a StringMap?
-			// time offsets mean plugins with times in the future will be "stale" for longer
 			bool selfStale;
 			char pluginSelfName[PLATFORM_MAX_PATH];
 			GetPluginFilename(INVALID_HANDLE, pluginSelfName, sizeof(pluginSelfName));
@@ -85,31 +121,40 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 			while (MorePlugins(iterator)) {
 				Handle plugin = ReadPlugin(iterator);
 				
-				char pluginName[PLATFORM_MAX_PATH], pluginPath[PLATFORM_MAX_PATH];
-				
+				char pluginName[PLATFORM_MAX_PATH];
 				GetPluginFilename(plugin, pluginName, sizeof(pluginName));
-				BuildPath(Path_SM, pluginPath, sizeof(pluginPath), "plugins/%s", pluginName);
 				
-				int mtime = GetFileTime(pluginPath, FileTime_LastChange);
-				
-				if (mtime > g_LastRefresh) {
+				int mtime;
+				if (IsPluginStale(pluginName, mtime)) {
 					if (StrEqual(pluginName, pluginSelfName)) {
+						// Should not reload self while processing other plugins
 						selfStale = true;
 					} else {
 						ReloadPlugin(plugin);
+					}
+					
+					// Plugin is now from the future, store time
+					if (mtime > GetTime()) {
+						g_FuturePluginTimes.SetValue(pluginName, mtime);
 					}
 				}
 			}
 			delete iterator;
 			
 			if (selfStale) {
-				RequestFrame(ReloadSelfNextFrame);
+				ReloadPlugin();
 			}
 			
 			g_LastRefresh = GetTime();
-			
-			return Plugin_Handled;
 		}
+		default: {
+			bSinglePluginAction = true;
+		}
+	}
+	
+	if (!bSinglePluginAction) {
+		// was multi-plugin action that was performed above
+		return Plugin_Handled;
 	}
 	
 	// TODO get all plugin filenames and treat them as expressions to be expanded?
@@ -166,6 +211,18 @@ public Action ServerCmd_PluginManage(int argc) {
 	return AdminCmd_PluginManage(0, argc);
 }
 
-public void ReloadSelfNextFrame(any ignored) {
-	ReloadPlugin();
+bool IsPluginStale(const char[] pluginName, int &mtime) {
+	char pluginPath[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, pluginPath, sizeof(pluginPath), "plugins/%s", pluginName);
+	
+	mtime = GetFileTime(pluginPath, FileTime_LastChange);
+	int existingTime;
+	
+	if (g_FuturePluginTimes.GetValue(pluginName, existingTime)) {
+		// If plugin is from the future, check if newer than last known mtime
+		return (mtime > existingTime);
+	}
+	
+	// otherwise just check that it's newer than the last full refresh
+	return (mtime > g_LastRefresh);
 }
