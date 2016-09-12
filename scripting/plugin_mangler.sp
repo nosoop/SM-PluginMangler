@@ -11,7 +11,7 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.1.1"
+#define PLUGIN_VERSION "1.1.2"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -50,6 +50,8 @@ public void OnPluginStart() {
 	RegAdminCmd("sm_plugins", AdminCmd_PluginManage, ADMFLAG_ROOT);
 	
 	RegServerCmd("plugins", ServerCmd_PluginManage);
+	
+	g_FuturePluginTimes = new StringMap();
 }
 
 public void OnMapStart() {
@@ -62,12 +64,8 @@ public void OnMapStart() {
 	 * when their mtime changes.
 	 */
 	
-	// If necessary, prune the trie by throwing it out and replanting a new one.
-	if (g_FuturePluginTimes) {
-		delete g_FuturePluginTimes;
-	}
-	
-	g_FuturePluginTimes = new StringMap();
+	// We can't remove individual items from the StringMap, so we'll have to rebuild it.
+	g_FuturePluginTimes.Clear();
 	
 	Handle iterator = GetPluginIterator();
 	while (MorePlugins(iterator)) {
