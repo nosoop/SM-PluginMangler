@@ -11,7 +11,7 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.1.2"
+#define PLUGIN_VERSION "1.2.0"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -34,6 +34,18 @@ enum PluginAction {
 
 char g_ActionCommands[][] = {
 	"", "load", "reload", "unload", "enable", "disable", "find", "info", "refresh_stale"
+};
+
+char g_ActionInfo[][] = {
+	"",
+	"Load a plugin",
+	"Reloads a plugin",
+	"Unload a plugin",
+	"Moves a plugin out of 'disabled/' and loads it",
+	"Unloads a plugin and moves it to 'disabled/'",
+	"Finds plugins matching the regular expression (TODO)",
+	"Information about a plugin",
+	"Reloads recently installed plugins"
 };
 
 int g_LastRefresh;
@@ -98,12 +110,22 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 		}
 		
 		if (action == Action_Invalid) {
-			ReplyToCommand(client, "Unknown plugin management command '%s'", actionName);
+			ReplyToCommand(client, "[SM] Unknown plugin management command '%s'", actionName);
 		}
 	} else {
 		char command[64];
 		GetCmdArg(0, command, sizeof(command));
+		
+		if (client && GetCmdReplySource() == SM_REPLY_TO_CHAT) {
+			ReplyToCommand(client, "[SM] See console output for usage instructions.");
+			SetCmdReplySource(SM_REPLY_TO_CONSOLE);
+		}
+		
 		ReplyToCommand(client, "Usage: %s [action] [plugin, ...]", command);
+		
+		for (int i = 1; i < view_as<int>(PluginAction); i++) {
+			ReplyToCommand(client, "    %-16s - %s", g_ActionCommands[i], g_ActionInfo[i]);
+		}
 	}
 	
 	bool bSinglePluginAction;
@@ -111,6 +133,7 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 	// Perform actions that do not need plugin names passed in.
 	switch (action) {
 		case Action_RefreshStale: {
+			int nReloads;
 			bool selfStale;
 			char pluginSelfName[PLATFORM_MAX_PATH];
 			GetPluginFilename(INVALID_HANDLE, pluginSelfName, sizeof(pluginSelfName));
@@ -125,9 +148,14 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 				int mtime;
 				if (IsPluginStale(pluginName, mtime)) {
 					if (StrEqual(pluginName, pluginSelfName)) {
+						if (!selfStale) {
+							nReloads++;
+						}
+						
 						// Should not reload self while processing other plugins
 						selfStale = true;
 					} else {
+						nReloads++;
 						ReloadPlugin(plugin);
 					}
 					
@@ -138,6 +166,10 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 				}
 			}
 			delete iterator;
+			
+			// Print the number of plugins reloaded so 0 reloads still provides a response
+			ReplyToCommand(client, "[SM] %d stale plugin(s) have been found and reloaded.",
+					nReloads);
 			
 			if (selfStale) {
 				ReloadPlugin();
@@ -170,19 +202,29 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 		
 		switch (action) {
 			case Action_Load: {
-				LoadPluginFile(pluginName);
+				if (!LoadPluginFile(pluginName)) {
+					ReplyToCommand(client,
+							"[SM] Plugin %s failed to load: Unable to open file.", pluginName);
+				}
 			}
 			case Action_Reload: {
-				ReloadPluginFile(pluginName);
+				if (!ReloadPluginFile(pluginName)) {
+					ReplyToCommand(client, "[SM] Plugin %s is not loaded.", pluginName);
+				}
 			}
 			case Action_Unload: {
-				UnloadPluginFile(pluginName);
+				if (!UnloadPluginFile(pluginName)) {
+					ReplyToCommand(client, "[SM] Plugin %s is not loaded.", pluginName);
+				}
 			}
 			case Action_Enable: {
 				if (EnablePluginFile(pluginName)) {
 					ReplyToCommand(client,
 							"[SM] Plugin %s has been moved out of the 'disabled/' directory.",
 							pluginName);
+				} else {
+					ReplyToCommand(client,
+							"[SM] Plugin %s failed to load: Unable to open file.", pluginName);
 				}
 			}
 			case Action_Disable: {
@@ -190,6 +232,8 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 					ReplyToCommand(client,
 							"[SM] Plugin %s has been moved to the 'disabled/' directory.",
 							pluginName);
+				} else {
+					ReplyToCommand(client, "[SM] Plugin %s is not loaded.", pluginName);
 				}
 			}
 			case Action_Info: {
@@ -199,6 +243,8 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 			}
 			case Action_Find: {
 				// TODO treat argument as regex and iterate plugin filenames?
+				ReplyToCommand(client,
+						"[SM] The 'find' subcommand has not been implemented yet.");
 			}
 		}
 	}
