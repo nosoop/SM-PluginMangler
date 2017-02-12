@@ -11,7 +11,7 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.2.0"
+#define PLUGIN_VERSION "1.2.1"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
