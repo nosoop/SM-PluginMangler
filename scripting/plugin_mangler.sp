@@ -11,7 +11,7 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.2.1"
+#define PLUGIN_VERSION "1.2.2"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -60,8 +60,7 @@ public void OnPluginStart() {
 	}
 	
 	RegAdminCmd("sm_plugins", AdminCmd_PluginManage, ADMFLAG_ROOT);
-	
-	RegServerCmd("plugins", ServerCmd_PluginManage);
+	RegAdminCmd("plugins", AdminCmd_PluginManage, ADMFLAG_ROOT);
 	
 	g_FuturePluginTimes = new StringMap();
 }
@@ -210,11 +209,15 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 			case Action_Reload: {
 				if (!ReloadPluginFile(pluginName)) {
 					ReplyToCommand(client, "[SM] Plugin %s is not loaded.", pluginName);
+				} else if (client) {
+					ReplyToCommand(client, "[SM] Plugin %s reloaded successfully.", pluginName);
 				}
 			}
 			case Action_Unload: {
 				if (!UnloadPluginFile(pluginName)) {
 					ReplyToCommand(client, "[SM] Plugin %s is not loaded.", pluginName);
+				} else if (client) {
+					ReplyToCommand(client, "[SM] Plugin %s unloaded successfully.", pluginName);
 				}
 			}
 			case Action_Enable: {
@@ -249,10 +252,6 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 		}
 	}
 	return Plugin_Handled;
-}
-
-public Action ServerCmd_PluginManage(int argc) {
-	return AdminCmd_PluginManage(0, argc);
 }
 
 bool IsPluginStale(const char[] pluginName, int &mtime) {
