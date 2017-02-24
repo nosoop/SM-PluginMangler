@@ -7,11 +7,13 @@
 #pragma semicolon 1
 #include <sourcemod>
 
+#include <regex>
+
 #pragma newdecls required
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.2.2"
+#define PLUGIN_VERSION "1.2.3-expr"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -52,6 +54,8 @@ int g_LastRefresh;
 
 StringMap g_FuturePluginTimes;
 
+Regex g_ExpressionArg;
+
 public void OnPluginStart() {
 	// EnableDisable.smx conflicts with this plugin's `plugins` server command
 	if (DisablePluginFile("EnableDisable")) {
@@ -63,6 +67,8 @@ public void OnPluginStart() {
 	RegAdminCmd("plugins", AdminCmd_PluginManage, ADMFLAG_ROOT);
 	
 	g_FuturePluginTimes = new StringMap();
+	
+	g_ExpressionArg = new Regex("\\/(.*)\\/");
 }
 
 public void OnMapStart() {
@@ -186,12 +192,49 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 		return Plugin_Handled;
 	}
 	
-	// TODO get all plugin filenames and treat them as expressions to be expanded?
-	
-	char pluginName[PLATFORM_MAX_PATH];
+	ArrayList plugins = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 	for (int i = 1; i < argc; i++) {
 		// off by one, command name at arg 0
+		char pluginName[PLATFORM_MAX_PATH];
 		GetCmdArg(i + 1, pluginName, sizeof(pluginName));
+		
+		if (g_ExpressionArg.Match(pluginName)) {
+			// argument is a regex
+			char regexArg[256];
+			g_ExpressionArg.GetSubString(1, regexArg, sizeof(regexArg));
+			
+			RegexError regexError;
+			char regexErrorString[256];
+			Regex pluginRegex = new Regex(regexArg, _, regexErrorString,
+					sizeof(regexErrorString), regexError);
+			
+			if (!regexError) {
+				Handle iterator = GetPluginIterator();
+				while (MorePlugins(iterator)) {
+					char iterPluginName[PLATFORM_MAX_PATH];
+					GetPluginFilename(ReadPlugin(iterator), iterPluginName,
+							sizeof(iterPluginName));
+					
+					if (plugins.FindString(iterPluginName) == -1
+							&& pluginRegex.Match(iterPluginName)) {
+						plugins.PushString(iterPluginName);
+						
+						LogServer("Found matching plugin %s", iterPluginName);
+					}
+				}
+				delete iterator;
+				delete pluginRegex;
+			} else {
+				LogError("Error while compiling '%s': %s", regexArg, regexErrorString);
+			}
+		} else {
+			plugins.PushString(pluginName);
+		}
+	}
+	
+	char pluginName[PLATFORM_MAX_PATH];
+	for (int i = 0; i < plugins.Length; i++) {
+		plugins.GetString(i, pluginName, sizeof(pluginName));
 		
 		// append .smx if necessary for ReplyToCommand messages
 		int ext = FindCharInString(pluginName, '.', true);
@@ -251,6 +294,7 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 			}
 		}
 	}
+	delete plugins;
 	return Plugin_Handled;
 }
 
