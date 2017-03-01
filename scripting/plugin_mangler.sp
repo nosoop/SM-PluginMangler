@@ -13,7 +13,7 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.2.4-expr"
+#define PLUGIN_VERSION "1.2.5-expr"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -68,7 +68,7 @@ public void OnPluginStart() {
 	
 	g_FuturePluginTimes = new StringMap();
 	
-	g_ExpressionArg = new Regex("\\/(.*)\\/");
+	g_ExpressionArg = new Regex("^\\/(.*)\\/$");
 }
 
 public void OnMapStart() {
