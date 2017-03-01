@@ -13,7 +13,7 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.2.3-expr"
+#define PLUGIN_VERSION "1.2.4-expr"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -199,7 +199,7 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 		GetCmdArg(i + 1, pluginName, sizeof(pluginName));
 		
 		if (g_ExpressionArg.Match(pluginName)) {
-			// argument is a regex
+			// argument is a regex of the form /{expr}/
 			char regexArg[256];
 			g_ExpressionArg.GetSubString(1, regexArg, sizeof(regexArg));
 			
@@ -209,25 +209,87 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 					sizeof(regexErrorString), regexError);
 			
 			if (!regexError) {
-				Handle iterator = GetPluginIterator();
-				while (MorePlugins(iterator)) {
-					char iterPluginName[PLATFORM_MAX_PATH];
-					GetPluginFilename(ReadPlugin(iterator), iterPluginName,
-							sizeof(iterPluginName));
+				if (action == Action_Enable) {
+					// match filenames of disabled plugins
+					char pluginBasePath[PLATFORM_MAX_PATH];
+					BuildPath(Path_SM, pluginBasePath, sizeof(pluginBasePath),
+							"plugins/disabled/");
 					
-					if (plugins.FindString(iterPluginName) == -1
-							&& pluginRegex.Match(iterPluginName)) {
-						plugins.PushString(iterPluginName);
+					ArrayStack directories =
+							new ArrayStack(ByteCountToCells(PLATFORM_MAX_PATH));
+					
+					directories.PushString(pluginBasePath);
+					
+					// depth-first search
+					char filePath[PLATFORM_MAX_PATH];
+					char searchPath[PLATFORM_MAX_PATH];
+					while (!directories.Empty) {
+						/**
+						 * get the next directory path to search
+						 * 
+						 * workaround since we can't get the current directory name off a
+						 * DirectoryListing handle
+						 */
+						directories.PopString(searchPath, sizeof(searchPath));
 						
-						LogServer("Found matching plugin %s", iterPluginName);
+						DirectoryListing dl = OpenDirectory(searchPath, false);
+						FileType type;
+						
+						while (dl.GetNext(filePath, sizeof(filePath), type)) {
+							switch (type) {
+								case FileType_File: {
+									char pluginFile[PLATFORM_MAX_PATH];
+									
+									// get filename relative to plugins/disabled
+									Format(pluginFile, sizeof(pluginFile), "%s%s",
+											searchPath[strlen(pluginBasePath)], filePath);
+									
+									if (plugins.FindString(pluginFile) == -1
+											&& pluginRegex.Match(pluginFile)) {
+										plugins.PushString(pluginFile);
+										
+										LogServer("Found matching plugin %s", pluginFile);
+									}
+								}
+								case FileType_Directory: {
+									if (!StrEqual(filePath, "..") && !StrEqual(filePath, ".")) {
+										char nextPath[PLATFORM_MAX_PATH];
+										Format(nextPath, sizeof(nextPath), "%s%s/",
+												searchPath, filePath);
+										
+										// push directory name onto the stack
+										directories.PushString(nextPath);
+									}
+								}
+							}
+						}
+						
+						delete dl;
 					}
+					delete directories;
+				} else {
+					// match filenames of currently running plugins
+					Handle iterator = GetPluginIterator();
+					while (MorePlugins(iterator)) {
+						char iterPluginName[PLATFORM_MAX_PATH];
+						GetPluginFilename(ReadPlugin(iterator), iterPluginName,
+								sizeof(iterPluginName));
+						
+						if (plugins.FindString(iterPluginName) == -1
+								&& pluginRegex.Match(iterPluginName)) {
+							plugins.PushString(iterPluginName);
+							
+							LogServer("Found matching plugin %s", iterPluginName);
+						}
+					}
+					delete iterator;
 				}
-				delete iterator;
 				delete pluginRegex;
 			} else {
 				LogError("Error while compiling '%s': %s", regexArg, regexErrorString);
 			}
 		} else {
+			// not a regular expression; assume it's a plugin file and add to the list
 			plugins.PushString(pluginName);
 		}
 	}
