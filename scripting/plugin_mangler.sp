@@ -13,7 +13,7 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.2.5"
+#define PLUGIN_VERSION "1.3.0"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -31,11 +31,13 @@ enum PluginAction {
 	Action_Disable,
 	Action_Find,
 	Action_Info,
-	Action_RefreshStale
+	Action_RefreshStale,
+	Action_ListDuplicates
 };
 
 char g_ActionCommands[][] = {
-	"", "load", "reload", "unload", "enable", "disable", "find", "info", "refresh_stale"
+	"", "load", "reload", "unload", "enable", "disable", "find", "info", "refresh_stale",
+	"list_duplicates"
 };
 
 char g_ActionInfo[][] = {
@@ -47,7 +49,8 @@ char g_ActionInfo[][] = {
 	"Unloads a plugin and moves it to 'disabled/'",
 	"Finds plugins matching the regular expression (TODO)",
 	"Information about a plugin",
-	"Reloads recently installed plugins"
+	"Reloads recently installed plugins",
+	"Displays a list of enabled plugins with a matching base name"
 };
 
 int g_LastRefresh;
@@ -181,6 +184,52 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 			}
 			
 			g_LastRefresh = GetTime();
+		}
+		case Action_ListDuplicates: {
+			/**
+			 * Outputs a list of plugins that share the same base name.
+			 * Useful if you forgot you had a specific plugin in another directory already.
+			 */
+			StringMap pluginCounts = new StringMap();
+			
+			Handle iterator = GetPluginIterator();
+			while (MorePlugins(iterator)) {
+				Handle plugin = ReadPlugin(iterator);
+				
+				char pluginName[PLATFORM_MAX_PATH];
+				GetPluginFilename(plugin, pluginName, sizeof(pluginName));
+				
+				char pluginBaseName[PLATFORM_MAX_PATH];
+				strcopy(pluginBaseName, sizeof(pluginBaseName),
+						pluginName[ FindCharInString(pluginName, '/') + 1]);
+				
+				int nInstances;
+				pluginCounts.GetValue(pluginBaseName, nInstances);
+				pluginCounts.SetValue(pluginBaseName, ++nInstances);
+			}
+			delete iterator;
+			
+			int nReportedDuplicates;
+			StringMapSnapshot uniquePluginNames = pluginCounts.Snapshot();
+			for (int i = 0; i < uniquePluginNames.Length; i++) {
+				char pluginBaseName[PLATFORM_MAX_PATH];
+				uniquePluginNames.GetKey(i, pluginBaseName, sizeof(pluginBaseName));
+				
+				int nInstances;
+				pluginCounts.GetValue(pluginBaseName, nInstances);
+				
+				if (nInstances > 1) {
+					ReplyToCommand(client, "%d active plugins have the base name '%s'",
+							nInstances, pluginBaseName);
+					nReportedDuplicates++;
+				}
+			}
+			delete uniquePluginNames;
+			delete pluginCounts;
+			
+			if (!nReportedDuplicates) {
+				ReplyToCommand(client, "No duplicate plugins found.");
+			}
 		}
 		default: {
 			bSinglePluginAction = true;
