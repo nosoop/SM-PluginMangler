@@ -32,7 +32,8 @@ enum PluginAction {
 	Action_Find,
 	Action_Info,
 	Action_RefreshStale,
-	Action_ListDuplicates
+	Action_ListDuplicates,
+	NUM_PLUGIN_ACTIONS,
 };
 
 char g_ActionCommands[][] = {
@@ -111,9 +112,9 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 		char actionName[16];
 		GetCmdArg(1, actionName, sizeof(actionName));
 		
-		for (int i = 0; i < view_as<int>(PluginAction); i++) {
+		for (PluginAction i; i < NUM_PLUGIN_ACTIONS; i++) {
 			if (strlen(actionName) > 0 && StrEqual(actionName, g_ActionCommands[i])) {
-				action = view_as<PluginAction>(i);
+				action = i;
 			}
 		}
 		
