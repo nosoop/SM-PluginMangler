@@ -13,7 +13,9 @@
 #include <stocksoup/plugin_utils>
 #include <stocksoup/log_server>
 
-#define PLUGIN_VERSION "1.3.0"
+#include <stocksoup/files>
+
+#define PLUGIN_VERSION "1.4.0-pre"
 public Plugin myinfo = {
 	name = "[ANY] Plugin Mangler",
 	author = "nosoop",
@@ -259,81 +261,23 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 					sizeof(regexErrorString), regexError);
 			
 			if (!regexError) {
-				if (action == Action_Enable) {
-					// match filenames of disabled plugins
-					char pluginBasePath[PLATFORM_MAX_PATH];
-					BuildPath(Path_SM, pluginBasePath, sizeof(pluginBasePath),
-							"plugins/disabled/");
+				char pluginBasePath[PLATFORM_MAX_PATH];
+				BuildPath(Path_SM, pluginBasePath, sizeof(pluginBasePath), "plugins");
+				
+				int baselen = strlen(pluginBasePath) + 1;
+				
+				ArrayList pluginResults = GetFilesInDirectoryRecursive(pluginBasePath);
+				
+				for (int j, n = pluginResults.Length; j < n; j++) {
+					char pluginResult[PLATFORM_MAX_PATH];
+					pluginResults.GetString(j, pluginResult, sizeof(pluginResult));
 					
-					ArrayStack directories =
-							new ArrayStack(ByteCountToCells(PLATFORM_MAX_PATH));
-					
-					directories.PushString(pluginBasePath);
-					
-					// depth-first search
-					char filePath[PLATFORM_MAX_PATH];
-					char searchPath[PLATFORM_MAX_PATH];
-					while (!directories.Empty) {
-						/**
-						 * get the next directory path to search
-						 * 
-						 * workaround since we can't get the current directory name off a
-						 * DirectoryListing handle
-						 */
-						directories.PopString(searchPath, sizeof(searchPath));
-						
-						DirectoryListing dl = OpenDirectory(searchPath, false);
-						FileType type;
-						
-						while (dl.GetNext(filePath, sizeof(filePath), type)) {
-							switch (type) {
-								case FileType_File: {
-									char pluginFile[PLATFORM_MAX_PATH];
-									
-									// get filename relative to plugins/disabled
-									Format(pluginFile, sizeof(pluginFile), "%s%s",
-											searchPath[strlen(pluginBasePath)], filePath);
-									
-									if (plugins.FindString(pluginFile) == -1
-											&& pluginRegex.Match(pluginFile)) {
-										plugins.PushString(pluginFile);
-										
-										LogServer("Found matching plugin %s", pluginFile);
-									}
-								}
-								case FileType_Directory: {
-									if (!StrEqual(filePath, "..") && !StrEqual(filePath, ".")) {
-										char nextPath[PLATFORM_MAX_PATH];
-										Format(nextPath, sizeof(nextPath), "%s%s/",
-												searchPath, filePath);
-										
-										// push directory name onto the stack
-										directories.PushString(nextPath);
-									}
-								}
-							}
-						}
-						
-						delete dl;
+					if (pluginRegex.Match(pluginResult[baselen])) {
+						plugins.PushString(pluginResult[baselen]);
 					}
-					delete directories;
-				} else {
-					// match filenames of currently running plugins
-					Handle iterator = GetPluginIterator();
-					while (MorePlugins(iterator)) {
-						char iterPluginName[PLATFORM_MAX_PATH];
-						GetPluginFilename(ReadPlugin(iterator), iterPluginName,
-								sizeof(iterPluginName));
-						
-						if (plugins.FindString(iterPluginName) == -1
-								&& pluginRegex.Match(iterPluginName)) {
-							plugins.PushString(iterPluginName);
-							
-							LogServer("Found matching plugin %s", iterPluginName);
-						}
-					}
-					delete iterator;
 				}
+				
+				delete pluginResults;
 				delete pluginRegex;
 			} else {
 				LogError("Error while compiling '%s': %s", regexArg, regexErrorString);
@@ -342,6 +286,10 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 			// not a regular expression; assume it's a plugin file and add to the list
 			plugins.PushString(pluginName);
 		}
+	}
+	
+	if (action == Action_Find) {
+		ReplyToCommand(client, "%d plugins found:", plugins.Length);
 	}
 	
 	char pluginName[PLATFORM_MAX_PATH];
@@ -400,9 +348,7 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 				}
 			}
 			case Action_Find: {
-				// TODO treat argument as regex and iterate plugin filenames?
-				ReplyToCommand(client,
-						"[SM] The 'find' subcommand has not been implemented yet.");
+				ReplyToCommand(client, "%d: %s", i, pluginName);
 			}
 		}
 	}
