@@ -134,7 +134,7 @@ public Action AdminCmd_PluginManage(int client, int argc) {
 		
 		ReplyToCommand(client, "Usage: %s [action] [plugin, ...]", command);
 		
-		for (int i = 1; i < view_as<int>(PluginAction); i++) {
+		for (int i = 1; i < NUM_PLUGIN_ACTIONS; i++) {
 			ReplyToCommand(client, "    %-16s - %s", g_ActionCommands[i], g_ActionInfo[i]);
 		}
 	}
