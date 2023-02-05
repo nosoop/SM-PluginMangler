@@ -1,3 +1,3 @@
 [submodule "scripting/include/stocksoup"]
-	path = scripting/include/stocksoup
+	path = third_party/submodules/stocksoup
 	url = https://github.com/nosoop/stocksoup
